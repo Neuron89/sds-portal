@@ -5,21 +5,120 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Safety Data Sheet - {{ product.product_name }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs" type="module"></script>
+    <style>
+        .pdf-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            padding: 0.5rem 1rem;
+            background: #0f172a;
+            border-bottom: 1px solid #334155;
+        }
+        .pdf-controls button {
+            background: #334155;
+            color: #e2e8f0;
+            border: none;
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: var(--font);
+            font-size: 0.85rem;
+        }
+        .pdf-controls button:hover { background: #475569; }
+        .pdf-controls button:disabled { opacity: 0.4; cursor: default; }
+        .pdf-controls span { color: #94a3b8; font-size: 0.85rem; }
+        .pdf-canvas-wrap {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem 0;
+            background: #1a1a2e;
+        }
+        .pdf-canvas-wrap canvas {
+            max-width: 95%;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+    </style>
 </head>
-<body class="sds-viewer">
+<body class="sds-viewer" oncontextmenu="return false;">
     <div class="sds-header">
         <h1>Safety Data Sheet</h1>
         <p class="sds-product">{{ product.product_name }} ({{ product.product_code }})</p>
     </div>
-    <div class="sds-embed">
-        <iframe
-            src="{{ url_for('serve_pdf', product_code=product_code, token=token) }}"
-            width="100%" height="100%"
-            type="application/pdf"
-        ></iframe>
+    <div class="pdf-controls">
+        <button id="zoom-out" title="Zoom Out">-</button>
+        <span id="zoom-level">100%</span>
+        <button id="zoom-in" title="Zoom In">+</button>
+        <span id="page-info"></span>
     </div>
+    <div class="pdf-canvas-wrap" id="pdf-container"></div>
     <div class="sds-footer">
         <p>This document is provided for safety information purposes only.</p>
     </div>
+
+    <script type="module">
+        import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs';
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.worker.min.mjs';
+
+        const pdfUrl = "{{ url_for('serve_pdf', product_code=product_code, token=token) }}";
+        const container = document.getElementById('pdf-container');
+        const pageInfo = document.getElementById('page-info');
+        const zoomLevelEl = document.getElementById('zoom-level');
+
+        let pdfDoc = null;
+        let scale = 1.5;
+        const baseScale = 1.5;
+
+        async function renderAllPages() {
+            container.innerHTML = '';
+            for (let i = 1; i <= pdfDoc.numPages; i++) {
+                const page = await pdfDoc.getPage(i);
+                const viewport = page.getViewport({ scale });
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                container.appendChild(canvas);
+                const ctx = canvas.getContext('2d');
+                await page.render({ canvasContext: ctx, viewport }).promise;
+            }
+            pageInfo.textContent = pdfDoc.numPages + ' page' + (pdfDoc.numPages !== 1 ? 's' : '');
+        }
+
+        async function init() {
+            try {
+                pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
+                await renderAllPages();
+            } catch (err) {
+                container.innerHTML = '<p style="color:#ef4444;padding:2rem;">Failed to load PDF.</p>';
+            }
+        }
+
+        document.getElementById('zoom-in').addEventListener('click', () => {
+            scale = Math.min(scale + 0.25, 4);
+            zoomLevelEl.textContent = Math.round((scale / baseScale) * 100) + '%';
+            renderAllPages();
+        });
+
+        document.getElementById('zoom-out').addEventListener('click', () => {
+            scale = Math.max(scale - 0.25, 0.5);
+            zoomLevelEl.textContent = Math.round((scale / baseScale) * 100) + '%';
+            renderAllPages();
+        });
+
+        // Block keyboard shortcuts for saving/printing
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && ['s', 'p', 'S', 'P'].includes(e.key)) {
+                e.preventDefault();
+            }
+        });
+
+        init();
+    </script>
 </body>
 </html>

@@ -5,7 +5,7 @@ from functools import wraps
 
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    flash, send_file, abort, session
+    flash, send_file, abort, session, make_response
 )
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
@@ -137,6 +137,16 @@ def view_sds(product_code):
                            token=token, product_code=product_code)
 
 
+def send_pdf_readonly(filepath):
+    """Send a PDF with headers that prevent downloading/caching."""
+    response = make_response(send_file(filepath, mimetype='application/pdf'))
+    response.headers['Content-Disposition'] = 'inline'
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 @app.route('/sds/<product_code>/pdf')
 def serve_pdf(product_code):
     """Serve the actual PDF file. Requires valid token or admin login."""
@@ -158,7 +168,7 @@ def serve_pdf(product_code):
         filepath = os.path.join(config.UPLOAD_FOLDER, sds['filename'])
         if not os.path.exists(filepath):
             abort(404)
-        return send_file(filepath, mimetype='application/pdf')
+        return send_pdf_readonly(filepath)
 
     token = request.args.get('token')
     if not token:
@@ -189,7 +199,7 @@ def serve_pdf(product_code):
     if not os.path.exists(filepath):
         abort(404)
 
-    return send_file(filepath, mimetype='application/pdf')
+    return send_pdf_readonly(filepath)
 
 
 # --- Error pages ---
