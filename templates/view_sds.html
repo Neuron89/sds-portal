@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety Data Sheet - {{ product.product_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="sds-viewer">
+    <div class="sds-header">
+        <h1>Safety Data Sheet</h1>
+        <p class="sds-product">{{ product.product_name }} ({{ product.product_code }})</p>
+    </div>
+    <div class="sds-embed">
+        <iframe
+            src="{{ url_for('serve_pdf', product_code=product_code, token=token) }}"
+            width="100%" height="100%"
+            type="application/pdf"
+        ></iframe>
+    </div>
+    <div class="sds-footer">
+        <p>This document is provided for safety information purposes only.</p>
+    </div>
+</body>
+</html>

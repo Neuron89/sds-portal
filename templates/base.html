@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SDS Portal{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    {% if current_user.is_authenticated %}
+    <nav class="admin-nav">
+        <div class="nav-inner">
+            <a href="{{ url_for('admin_dashboard') }}" class="nav-brand">SDS Portal Admin</a>
+            <div class="nav-links">
+                <a href="{{ url_for('admin_dashboard') }}">Products</a>
+                <a href="{{ url_for('manage_users') }}">Users</a>
+                <span class="nav-user">{{ current_user.username }}</span>
+                <a href="{{ url_for('logout') }}" class="btn btn-sm">Logout</a>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

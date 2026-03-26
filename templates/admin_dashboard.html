@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - SDS Portal{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="page-header">
+        <h1>Products</h1>
+        <a href="{{ url_for('add_product') }}" class="btn btn-primary">Add Product</a>
+    </div>
+
+    {% if products %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product Code</th>
+                    <th>Product Name</th>
+                    <th>SDS File</th>
+                    <th>Uploaded By</th>
+                    <th>Uploaded At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in products %}
+                <tr>
+                    <td><strong>{{ p.product_code }}</strong></td>
+                    <td>{{ p.product_name }}</td>
+                    <td>
+                        {% if p.original_filename %}
+                        <span class="badge badge-success">{{ p.original_filename }}</span>
+                        {% else %}
+                        <span class="badge badge-warning">No SDS</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ p.uploaded_by_name or '-' }}</td>
+                    <td>{{ p.sds_uploaded_at or '-' }}</td>
+                    <td class="actions">
+                        <a href="{{ url_for('upload_sds', product_id=p.id) }}" class="btn btn-sm">Upload SDS</a>
+                        <a href="{{ url_for('edit_product', product_id=p.id) }}" class="btn btn-sm">Edit</a>
+                        {% if p.original_filename %}
+                        <a href="{{ url_for('view_sds', product_code=p.product_code) }}" class="btn btn-sm" target="_blank">View</a>
+                        {% endif %}
+                        <form method="POST" action="{{ url_for('delete_product', product_id=p.id) }}" class="inline-form"
+                              onsubmit="return confirm('Delete {{ p.product_code }}? This removes the product and all SDS files.')">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No products yet. Add your first product to get started.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

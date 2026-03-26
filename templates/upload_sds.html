@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Upload SDS - {{ product.product_code }}{% endblock %}
+{% block content %}
+<div class="form-container">
+    <h1>Upload SDS for {{ product.product_code }}</h1>
+    <p class="subtitle">{{ product.product_name }}</p>
+
+    {% if current_sds %}
+    <div class="current-file">
+        <strong>Current SDS:</strong> {{ current_sds.original_filename }}
+        <small>(uploaded {{ current_sds.uploaded_at }})</small>
+        <p class="warning-text">Uploading a new file will replace the current SDS.</p>
+    </div>
+    {% endif %}
+
+    <form method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="sds_file">SDS File (PDF only)</label>
+            <input type="file" id="sds_file" name="sds_file" accept=".pdf" required>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Upload</button>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Users - SDS Portal{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="page-header">
+        <h1>Users</h1>
+        <a href="{{ url_for('add_user') }}" class="btn btn-primary">Add User</a>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u.username }}</td>
+                    <td>{{ u.created_at }}</td>
+                    <td>
+                        {% if u.id != current_user.id %}
+                        <form method="POST" action="{{ url_for('delete_user', user_id=u.id) }}" class="inline-form"
+                              onsubmit="return confirm('Delete user {{ u.username }}?')">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                        {% else %}
+                        <span class="badge">You</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

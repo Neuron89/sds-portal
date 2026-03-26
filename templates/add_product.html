@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Add Product - SDS Portal{% endblock %}
+{% block content %}
+<div class="form-container">
+    <h1>Add Product</h1>
+    <form method="POST">
+        <div class="form-group">
+            <label for="product_code">Product Code</label>
+            <input type="text" id="product_code" name="product_code" required
+                   placeholder="e.g. NYCOA-1234" autofocus>
+            <small>This will be used in the QR code URL. Auto-converted to uppercase.</small>
+        </div>
+        <div class="form-group">
+            <label for="product_name">Product Name</label>
+            <input type="text" id="product_name" name="product_name" required
+                   placeholder="e.g. Industrial Adhesive XR-500">
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Add Product</button>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
