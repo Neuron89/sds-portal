@@ -85,6 +85,15 @@ def cleanup_expired_tokens():
 
 # --- Public routes (QR code entry point) ---
 
+@app.route('/')
+def root():
+    """Root entry — portal tile lands here. Send admins to the dashboard,
+    everyone else to admin login (which itself redirects back if authed)."""
+    if current_user.is_authenticated:
+        return redirect(url_for('admin_dashboard'))
+    return redirect(url_for('login'))
+
+
 @app.route('/sds/<product_code>')
 def view_sds(product_code):
     """QR code landing page. Generates a token and shows the PDF viewer."""
