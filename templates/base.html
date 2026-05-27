@@ -5,11 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SDS Portal{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% if CLARITY_PROJECT_ID %}
+    <script type="text/javascript">
+      (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+      })(window, document, "clarity", "script", "{{ CLARITY_PROJECT_ID }}");
+    </script>
+    {% endif %}
+    <style>
+      .portal-back-link {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px; border-radius: 999px;
+        font-size: 11px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.08em; color: rgba(255,255,255,0.75);
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.14);
+        text-decoration: none; margin-right: 12px;
+        transition: color .15s, background .15s, border-color .15s;
+      }
+      .portal-back-link:hover {
+        color: #fff; background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.30); text-decoration: none;
+      }
+      .portal-back-link svg { transition: transform .15s; }
+      .portal-back-link:hover svg { transform: translateX(-2px); }
+    </style>
 </head>
 <body>
     {% if current_user.is_authenticated %}
     <nav class="admin-nav">
         <div class="nav-inner">
+            {% if PORTAL_URL %}
+            <a href="{{ PORTAL_URL }}" class="portal-back-link" title="Back to NYCOA Portal">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+              <span>Portal</span>
+            </a>
+            {% endif %}
             <a href="{{ url_for('admin_dashboard') }}" class="nav-brand">SDS Portal Admin</a>
             <div class="nav-links">
                 <a href="{{ url_for('admin_dashboard') }}">Products</a>
