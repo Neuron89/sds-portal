@@ -25,6 +25,7 @@ from flask_login import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+import jwt
 
 import config
 from db import get_db, init_db
@@ -40,6 +41,7 @@ def inject_portal_chrome():
     return {
         'PORTAL_URL': os.environ.get('PORTAL_URL', ''),
         'CLARITY_PROJECT_ID': os.environ.get('CLARITY_PROJECT_ID', ''),
+        'PUBLIC_BASE_URL': config.PUBLIC_BASE_URL,
     }
 
 
@@ -107,65 +109,73 @@ def cleanup_expired_tokens():
 
 # --- Public routes (QR code entry point) ---
 
+def lookup_product(db, ref):
+    """Resolve a public reference to a product. Prefers the permanent qr_slug
+    (what QR labels encode); falls back to product_code for convenience and
+    backward compatibility with any links created before slugs existed."""
+    product = db.execute(
+        'SELECT * FROM products WHERE qr_slug = ?', (ref,)
+    ).fetchone()
+    if not product:
+        product = db.execute(
+            'SELECT * FROM products WHERE product_code = ?', (ref,)
+        ).fetchone()
+    return product
+
+
+def active_sds_for(db, product_id):
+    return db.execute(
+        'SELECT * FROM sds_files WHERE product_id = ? AND is_active = 1 '
+        'ORDER BY uploaded_at DESC LIMIT 1', (product_id,)
+    ).fetchone()
+
+
 @app.route('/')
 def root():
-    """Root entry — portal tile lands here. Send admins to the dashboard,
-    everyone else to admin login (which itself redirects back if authed)."""
+    """Root entry. Authenticated employees go to the dashboard. The public is
+    shown a neutral dead-end (no link into the system) — they should only ever
+    arrive via a QR code that lands on /sds/<slug>."""
     if current_user.is_authenticated:
         return redirect(url_for('admin_dashboard'))
-    return redirect(url_for('login'))
+    return render_template('error.html',
+                           title='NYCOA Safety Data Sheets',
+                           message='Scan the QR code on the product label to view its '
+                                   'Safety Data Sheet.'), 200
 
 
-@app.route('/sds/<product_code>')
-def view_sds(product_code):
+@app.route('/sds/<ref>')
+def view_sds(ref):
     """QR code landing page. Generates a token and shows the PDF viewer."""
+    db = get_db()
+    product = lookup_product(db, ref)
+    if not product:
+        db.close()
+        abort(404)
+    sds = active_sds_for(db, product['id'])
+
     # Admins bypass token checks
     if current_user.is_authenticated:
-        db = get_db()
-        product = db.execute(
-            'SELECT * FROM products WHERE product_code = ?', (product_code,)
-        ).fetchone()
-        if not product:
-            db.close()
-            abort(404)
-        sds = db.execute(
-            'SELECT * FROM sds_files WHERE product_id = ? AND is_active = 1 '
-            'ORDER BY uploaded_at DESC LIMIT 1', (product['id'],)
-        ).fetchone()
         db.close()
         if not sds:
             abort(404)
         return render_template('view_sds.html', product=product, sds=sds,
-                               token='admin', product_code=product_code)
+                               token='admin', ref=ref)
 
-    ip = request.remote_addr
-    db = get_db()
-    product = db.execute(
-        'SELECT * FROM products WHERE product_code = ?', (product_code,)
-    ).fetchone()
-    if not product:
-        db.close()
-        abort(404)
-
-    sds = db.execute(
-        'SELECT * FROM sds_files WHERE product_id = ? AND is_active = 1 '
-        'ORDER BY uploaded_at DESC LIMIT 1', (product['id'],)
-    ).fetchone()
     db.close()
     if not sds:
         abort(404)
 
-    # Check for existing valid token in session
-    session_token = session.get(f'sds_token_{product_code}')
+    ip = request.remote_addr
+    # Reuse a still-valid token from this session, else mint a fresh IP-bound one.
+    session_token = session.get(f'sds_token_{ref}')
     if session_token and validate_access_token(session_token, product['id'], ip):
         token = session_token
     else:
-        # Generate new token bound to this IP
         token = generate_access_token(product['id'], ip)
-        session[f'sds_token_{product_code}'] = token
+        session[f'sds_token_{ref}'] = token
 
     return render_template('view_sds.html', product=product, sds=sds,
-                           token=token, product_code=product_code)
+                           token=token, ref=ref)
 
 
 def send_pdf_readonly(filepath):
@@ -178,50 +188,22 @@ def send_pdf_readonly(filepath):
     return response
 
 
-@app.route('/sds/<product_code>/pdf')
-def serve_pdf(product_code):
+@app.route('/sds/<ref>/pdf')
+def serve_pdf(ref):
     """Serve the actual PDF file. Requires valid token or admin login."""
-    if current_user.is_authenticated:
-        db = get_db()
-        product = db.execute(
-            'SELECT * FROM products WHERE product_code = ?', (product_code,)
-        ).fetchone()
-        if not product:
-            db.close()
-            abort(404)
-        sds = db.execute(
-            'SELECT * FROM sds_files WHERE product_id = ? AND is_active = 1 '
-            'ORDER BY uploaded_at DESC LIMIT 1', (product['id'],)
-        ).fetchone()
-        db.close()
-        if not sds:
-            abort(404)
-        filepath = os.path.join(config.UPLOAD_FOLDER, sds['filename'])
-        if not os.path.exists(filepath):
-            abort(404)
-        return send_pdf_readonly(filepath)
-
-    token = request.args.get('token')
-    if not token:
-        abort(403)
-
-    ip = request.remote_addr
     db = get_db()
-    product = db.execute(
-        'SELECT * FROM products WHERE product_code = ?', (product_code,)
-    ).fetchone()
+    product = lookup_product(db, ref)
     if not product:
         db.close()
         abort(404)
 
-    if not validate_access_token(token, product['id'], ip):
-        db.close()
-        abort(403)
+    if not current_user.is_authenticated:
+        token = request.args.get('token')
+        if not token or not validate_access_token(token, product['id'], request.remote_addr):
+            db.close()
+            abort(403)
 
-    sds = db.execute(
-        'SELECT * FROM sds_files WHERE product_id = ? AND is_active = 1 '
-        'ORDER BY uploaded_at DESC LIMIT 1', (product['id'],)
-    ).fetchone()
+    sds = active_sds_for(db, product['id'])
     db.close()
     if not sds:
         abort(404)
@@ -277,6 +259,52 @@ def logout():
     return redirect(url_for('login'))
 
 
+@app.route('/sso')
+def sso():
+    """Single sign-on entry from the NYCOA Portal. The portal mints a 5-minute
+    HS256 JWT (signed with PORTAL_SSO_SECRET, aud='sds', iss='nycoa-portal') and
+    redirects here as /sso?ptoken=<jwt>&next=<path>. A valid token means the
+    portal already authorized this employee for SDS, so we provision/look up a
+    local user by email and log them in."""
+    if not config.PORTAL_SSO_SECRET:
+        abort(503)
+    ptoken = request.args.get('ptoken', '')
+    if not ptoken:
+        abort(403)
+    try:
+        claims = jwt.decode(
+            ptoken, config.PORTAL_SSO_SECRET, algorithms=['HS256'],
+            audience=config.SSO_AUDIENCE, issuer=config.SSO_ISSUER,
+        )
+    except jwt.InvalidTokenError:
+        flash('That sign-on link is invalid or has expired. Please open SDS Portal '
+              'from the NYCOA Portal again.', 'error')
+        return redirect(url_for('login'))
+
+    email = (claims.get('email') or '').strip().lower()
+    if not email:
+        abort(403)
+
+    db = get_db()
+    row = db.execute('SELECT id, username FROM users WHERE username = ?', (email,)).fetchone()
+    if not row:
+        # First SSO arrival — provision a local account with an unusable
+        # password (login is only ever via the portal for these users).
+        db.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)',
+                   (email, generate_password_hash(uuid.uuid4().hex)))
+        db.commit()
+        row = db.execute('SELECT id, username FROM users WHERE username = ?', (email,)).fetchone()
+    db.close()
+
+    login_user(User(row['id'], row['username']))
+
+    # Only follow a same-origin relative path; never an absolute/external URL.
+    nxt = request.args.get('next', '')
+    if nxt.startswith('/') and not nxt.startswith('//'):
+        return redirect(nxt)
+    return redirect(url_for('admin_dashboard'))
+
+
 # --- Admin routes ---
 
 @app.route('/admin')
@@ -294,6 +322,29 @@ def admin_dashboard():
     return render_template('admin_dashboard.html', products=products)
 
 
+@app.route('/admin/product/<int:product_id>')
+@login_required
+def product_detail(product_id):
+    """Per-product workspace: SDS upload, version history, and the QR/label
+    URL for this product."""
+    db = get_db()
+    product = db.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+    if not product:
+        db.close()
+        abort(404)
+    history = db.execute(
+        'SELECT sf.*, u.username AS uploaded_by_name '
+        'FROM sds_files sf LEFT JOIN users u ON sf.uploaded_by = u.id '
+        'WHERE sf.product_id = ? ORDER BY sf.uploaded_at DESC',
+        (product_id,)
+    ).fetchall()
+    db.close()
+    public_url = f"{config.PUBLIC_BASE_URL}/sds/{product['qr_slug']}"
+    current_sds = next((h for h in history if h['is_active']), None)
+    return render_template('product_detail.html', product=product, history=history,
+                           current_sds=current_sds, public_url=public_url)
+
+
 @app.route('/admin/product/add', methods=['GET', 'POST'])
 @login_required
 def add_product():
@@ -309,12 +360,17 @@ def add_product():
             db.close()
             flash('A product with that code already exists.', 'error')
             return render_template('add_product.html')
-        db.execute('INSERT INTO products (product_code, product_name) VALUES (?, ?)',
-                   (product_code, product_name))
+        from db import generate_slug
+        slug = generate_slug(db)
+        cur = db.execute(
+            'INSERT INTO products (product_code, product_name, qr_slug) VALUES (?, ?, ?)',
+            (product_code, product_name, slug))
+        product_id = cur.lastrowid
         db.commit()
         db.close()
         flash(f'Product {product_code} added.', 'success')
-        return redirect(url_for('admin_dashboard'))
+        # Land on the product workspace so they can upload the SDS + grab the QR.
+        return redirect(url_for('product_detail', product_id=product_id))
     return render_template('add_product.html')
 
 
@@ -330,12 +386,14 @@ def upload_sds(product_id):
     if request.method == 'POST':
         file = request.files.get('sds_file')
         if not file or file.filename == '':
+            db.close()
             flash('No file selected.', 'error')
-            return render_template('upload_sds.html', product=product)
+            return redirect(url_for('product_detail', product_id=product_id))
 
         if not file.filename.lower().endswith('.pdf'):
+            db.close()
             flash('Only PDF files are allowed.', 'error')
-            return render_template('upload_sds.html', product=product)
+            return redirect(url_for('product_detail', product_id=product_id))
 
         # Deactivate old SDS files for this product
         db.execute('UPDATE sds_files SET is_active = 0 WHERE product_id = ?', (product_id,))
@@ -355,14 +413,11 @@ def upload_sds(product_id):
         db.commit()
         db.close()
         flash(f'SDS uploaded for {product["product_code"]}.', 'success')
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('product_detail', product_id=product_id))
 
-    current_sds = db.execute(
-        'SELECT * FROM sds_files WHERE product_id = ? AND is_active = 1 '
-        'ORDER BY uploaded_at DESC LIMIT 1', (product_id,)
-    ).fetchone()
+    # The upload form lives on the product workspace page now.
     db.close()
-    return render_template('upload_sds.html', product=product, current_sds=current_sds)
+    return redirect(url_for('product_detail', product_id=product_id))
 
 
 @app.route('/admin/product/<int:product_id>/edit', methods=['GET', 'POST'])
@@ -490,8 +545,25 @@ def create_admin(username, password):
 
 # --- Periodic cleanup ---
 
+# Endpoints reachable on the public (QR) host. Everything else is the
+# employee system and is hidden behind the admin host.
+_PUBLIC_ENDPOINTS = {'root', 'view_sds', 'serve_pdf', 'static'}
+
+
 @app.before_request
-def before_request():
+def enforce_surface_separation():
+    """When an admin host is configured, the public host serves only the
+    read-only viewer — admin/login/SSO routes 404 there, so a QR scanner has
+    no path back into the system."""
+    if not config.SDS_ADMIN_HOST:
+        return  # single-host mode, no enforcement yet
+    host = request.host.split(':')[0].lower()
+    if host == config.SDS_PUBLIC_HOST and request.endpoint not in _PUBLIC_ENDPOINTS:
+        abort(404)
+
+
+@app.before_request
+def cleanup_tokens_occasionally():
     # Clean up expired tokens ~1% of requests
     import random
     if random.random() < 0.01:

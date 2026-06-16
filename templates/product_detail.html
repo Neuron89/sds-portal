@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}{{ product.product_code }} - SDS Portal{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>{{ product.product_code }}</h1>
+        <p class="subtitle">{{ product.product_name }}</p>
+    </div>
+    <div class="actions">
+        <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn">Edit</a>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn">Back to Products</a>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <!-- Upload + history -->
+    <section class="card">
+        <h2 class="card-title">Safety Data Sheet</h2>
+
+        {% if current_sds %}
+        <div class="current-file">
+            <strong>Current:</strong> {{ current_sds.original_filename }}
+            <small>(uploaded {{ current_sds.uploaded_at }}{% if current_sds.uploaded_by_name %} by {{ current_sds.uploaded_by_name }}{% endif %})</small>
+            <a href="{{ url_for('view_sds', ref=product.qr_slug) }}" target="_blank" class="btn btn-sm" style="margin-top:.5rem;">View current SDS</a>
+        </div>
+        {% else %}
+        <div class="current-file"><span class="badge badge-warning">No SDS uploaded yet</span></div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('upload_sds', product_id=product.id) }}"
+              enctype="multipart/form-data" id="upload-form">
+            <label class="dropzone" id="dropzone" for="sds_file">
+                <input type="file" id="sds_file" name="sds_file" accept="application/pdf" required hidden>
+                <span class="dropzone-icon">⬆</span>
+                <span class="dropzone-text" id="dropzone-text">Drop a PDF here or click to choose</span>
+                <span class="dropzone-hint">PDF only · uploading replaces the current SDS</span>
+            </label>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="upload-btn" disabled>Upload SDS</button>
+            </div>
+        </form>
+
+        {% if history %}
+        <h3 class="card-subtitle">Version history</h3>
+        <table class="mini-table">
+            <thead><tr><th>File</th><th>Uploaded</th><th>By</th><th>Status</th></tr></thead>
+            <tbody>
+                {% for h in history %}
+                <tr>
+                    <td>{{ h.original_filename }}</td>
+                    <td>{{ h.uploaded_at }}</td>
+                    <td>{{ h.uploaded_by_name or '-' }}</td>
+                    <td>{% if h.is_active %}<span class="badge badge-success">Active</span>{% else %}<span class="badge">Archived</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </section>
+
+    <!-- QR / label -->
+    <section class="card">
+        <h2 class="card-title">QR Code &amp; Label Link</h2>
+        <p class="muted">This link and QR are <strong>permanent</strong>. The code, name, and SDS file can all change &mdash; the printed label keeps working.</p>
+
+        <div class="qr-box">
+            <canvas id="qr-canvas"></canvas>
+        </div>
+
+        <label class="field-label">Public URL (encode this on the Crystal Reports label)</label>
+        <div class="copy-row">
+            <input type="text" id="public-url" value="{{ public_url }}" readonly>
+            <button type="button" class="btn btn-sm" id="copy-btn">Copy</button>
+        </div>
+
+        <div class="form-actions">
+            <button type="button" class="btn btn-sm" id="download-png">Download PNG</button>
+        </div>
+        <p class="muted" style="margin-top:.75rem;">Tip: Crystal Reports can render a QR barcode natively from the URL string &mdash; you usually don't need this image for production labels.</p>
+    </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+<script>
+    const publicUrl = {{ public_url | tojson }};
+    const productCode = {{ product.product_code | tojson }};
+
+    // Render QR
+    const qr = new QRious({
+        element: document.getElementById('qr-canvas'),
+        value: publicUrl,
+        size: 240,
+        level: 'M',
+        padding: 8,
+        background: '#ffffff',
+        foreground: '#1e293b',
+    });
+
+    // Copy URL
+    document.getElementById('copy-btn').addEventListener('click', () => {
+        const input = document.getElementById('public-url');
+        input.select();
+        navigator.clipboard.writeText(publicUrl).then(() => {
+            const btn = document.getElementById('copy-btn');
+            btn.textContent = 'Copied';
+            setTimeout(() => (btn.textContent = 'Copy'), 1500);
+        });
+    });
+
+    // Download PNG
+    document.getElementById('download-png').addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.href = document.getElementById('qr-canvas').toDataURL('image/png');
+        link.download = `SDS_QR_${productCode}.png`;
+        link.click();
+    });
+
+    // Dropzone behaviour
+    const dz = document.getElementById('dropzone');
+    const input = document.getElementById('sds_file');
+    const text = document.getElementById('dropzone-text');
+    const uploadBtn = document.getElementById('upload-btn');
+
+    function setFile(file) {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+            text.textContent = 'Only PDF files are allowed';
+            uploadBtn.disabled = true;
+            return;
+        }
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        text.textContent = file.name;
+        uploadBtn.disabled = false;
+    }
+
+    input.addEventListener('change', () => setFile(input.files[0]));
+    ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+        e.preventDefault(); dz.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => {
+        e.preventDefault(); dz.classList.remove('dragover');
+    }));
+    dz.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
+</script>
+{% endblock %}
